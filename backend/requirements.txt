@@ -1,0 +1,6 @@
+# Sonic Player Backend — Zero external dependencies!
+# Everything uses Python stdlib (http.server, json, subprocess).
+# Only yt-dlp is needed for YouTube interaction.
+# Install on Termux: pkg install yt-dlp
+# Install on Linux: pip install yt-dlp
+yt-dlp

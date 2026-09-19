@@ -1,0 +1,10 @@
+{
+  "name": "Sonic Player",
+  "short_name": "Sonic",
+  "description": "A personal music player with smart recommendations and offline playback.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08090c",
+  "theme_color": "#08090c",
+  "orientation": "any"
+}
