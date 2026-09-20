@@ -32,6 +32,8 @@ interface PlayerState {
   isShuffled: boolean
   videoMode: boolean
   visualizerType: 'bars' | 'wave' | 'circle' | 'fire' | 'aurora' | 'plasma' | 'rings'
+  /** Pending seek target in seconds — consumed by AudioEngine, then cleared */
+  seekRequest: number | null
 
   setCurrentTrack: (track: Track) => void
   play: () => void
@@ -52,6 +54,8 @@ interface PlayerState {
   toggleShuffle: () => void
   toggleVideoMode: () => void
   cycleVisualizer: () => void
+  requestSeek: (time: number) => void
+  clearSeekRequest: () => void
 }
 
 /** Call this whenever a track starts playing to record in history */
@@ -76,6 +80,7 @@ export function createPlayerStore() {
     isShuffled: false,
     videoMode: false,
     visualizerType: 'bars',
+    seekRequest: null,
 
     setCurrentTrack: (track) => {
       trackStarted(track)
@@ -164,6 +169,9 @@ export function createPlayerStore() {
       const idx = types.indexOf(s.visualizerType)
       return { visualizerType: types[(idx + 1) % types.length] }
     }),
+
+    requestSeek: (time) => set({ seekRequest: Math.max(0, time) }),
+    clearSeekRequest: () => set({ seekRequest: null }),
   }))
 }
 

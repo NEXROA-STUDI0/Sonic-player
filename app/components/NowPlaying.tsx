@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/lib/player-store'
 import Visualizer from './Visualizer'
+import LyricsPanel from './LyricsPanel'
 
 export default function NowPlaying() {
   const currentTrack = usePlayerStore((s) => s.currentTrack)
@@ -14,6 +15,7 @@ export default function NowPlaying() {
   const cycleVisualizer = usePlayerStore((s) => s.cycleVisualizer)
   const visualizerType = usePlayerStore((s) => s.visualizerType)
   const [videoLoading, setVideoLoading] = useState(false)
+  const [tab, setTab] = useState<'player' | 'lyrics'>('player')
 
   // The iframe is the source of truth for video playback; no redundant yt-dlp request is needed.
   useEffect(() => {
@@ -181,9 +183,40 @@ export default function NowPlaying() {
   }, [isPlaying])
 
   return (
-    <div className="flex flex-col flex-1 relative overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 relative overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
 
+      {/* Player / Lyrics tabs */}
+      <div className="relative z-10 shrink-0 flex items-center justify-center gap-1 px-6 pt-4">
+        <div className="flex items-center gap-1 p-1 rounded-full bg-sonic-surface3/60 border border-sonic-border">
+          <button
+            onClick={() => setTab('player')}
+            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
+              tab === 'player'
+                ? 'bg-[#e8c547] text-sonic-base'
+                : 'text-sonic-textMuted hover:text-sonic-textPrimary'
+            }`}
+          >
+            Now Playing
+          </button>
+          <button
+            onClick={() => setTab('lyrics')}
+            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
+              tab === 'lyrics'
+                ? 'bg-[#e8c547] text-sonic-base'
+                : 'text-sonic-textMuted hover:text-sonic-textPrimary'
+            }`}
+          >
+            Lyrics
+          </button>
+        </div>
+      </div>
+
+      {tab === 'lyrics' ? (
+        <div className="flex-1 min-h-0 relative z-10 flex flex-col">
+          <LyricsPanel />
+        </div>
+      ) : (
       <div className="flex flex-col items-center flex-1 px-6 py-6 overflow-y-auto relative z-10 no-scrollbar">
         {currentTrack ? (
           <>
@@ -335,6 +368,7 @@ export default function NowPlaying() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

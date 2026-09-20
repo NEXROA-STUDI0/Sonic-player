@@ -13,7 +13,7 @@ export default function PlayerBar() {
   const duration = usePlayerStore((s) => s.duration)
   const volume = usePlayerStore((s) => s.volume)
   const setVolume = usePlayerStore((s) => s.setVolume)
-  const setProgress = usePlayerStore((s) => s.setProgress)
+  const requestSeek = usePlayerStore((s) => s.requestSeek)
   const repeat = usePlayerStore((s) => s.repeat)
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat)
   const isShuffled = usePlayerStore((s) => s.isShuffled)
@@ -36,8 +36,8 @@ export default function PlayerBar() {
     if (!el || !duration) return
     const rect = el.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
-    setProgress(Math.max(0, Math.min(duration, x * duration)))
-  }, [duration, setProgress])
+    requestSeek(Math.max(0, Math.min(duration, x * duration)))
+  }, [duration, requestSeek])
 
   const handleVolumeClick = useCallback((e: React.MouseEvent) => {
     const el = volumeRef.current

@@ -22,6 +22,8 @@ export default function AudioEngine() {
   const queue = usePlayerStore((s) => s.queue)
   const queueIndex = usePlayerStore((s) => s.queueIndex)
   const setPlaybackError = usePlayerStore((s) => s.setPlaybackError)
+  const seekRequest = usePlayerStore((s) => s.seekRequest)
+  const clearSeekRequest = usePlayerStore((s) => s.clearSeekRequest)
 
   // Init both audio elements
   useEffect(() => {
@@ -161,6 +163,33 @@ export default function AudioEngine() {
       audio.pause()
     }
   }, [isPlaying])
+
+  // Honor seek requests (progress bar clicks, lyric line clicks).
+  // Note: piped YouTube streams are not range-seekable, so the
+  // request is applied only when the target is actually seekable.
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || seekRequest == null) return
+    try {
+      const t = Math.max(0, seekRequest)
+      let applied = false
+      if (audio.seekable && audio.seekable.length > 0) {
+        for (let i = 0; i < audio.seekable.length; i++) {
+          if (t >= audio.seekable.start(i) && t <= audio.seekable.end(i) + 1) {
+            audio.currentTime = t
+            applied = true
+            break
+          }
+        }
+      }
+      if (!applied && isFinite(audio.duration) && audio.duration > 0 && t <= audio.duration) {
+        // Best effort for streams that don't expose seekable ranges yet
+        audio.currentTime = t
+      }
+      setProgress(audio.currentTime)
+    } catch {}
+    clearSeekRequest()
+  }, [seekRequest])
 
   // Event listeners
   useEffect(() => {
