@@ -53,15 +53,22 @@ function parseLrc(lrc: string): { lines: LrcLine[]; synced: boolean } {
   return { lines: plain, synced: false }
 }
 
-function cleanQuery(title: string, artist: string): { title: string; artist: string } {
-  // "Artist - Song (Official Video)" -> "Song"
-  let t = title.replace(/^.+\s-\s(.+)$/, '$1')
-  t = t
-    .replace(/[\(\[].*?(official|video|audio|lyric|mv|m\/v|clip|hd|4k|remaster|live|cover| slowed|reverb).*?[\)\]]/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-  let a = artist.split('|')[0].split(' - ')[0].trim()
-  return { title: t || title, artist: a }
+function cleanQuery(title: string, artist: string): { title: string; firstSeg: string; artist: string } {
+  const segs = title.split(/\s-\s/).map((s) => s.trim()).filter(Boolean)
+  // Last segment: "Artist - Song" format; first segment: "Song - details" (common in Arabic titles)
+  const lastSeg = segs.length > 1 ? segs[segs.length - 1] : title
+  const firstSeg = segs.length > 1 ? segs[0] : title
+  const strip = (s: string) =>
+    s
+      .replace(/[\(\[].*?(official|video|audio|lyric|mv|m\/v|clip|hd|4k|remaster|live|cover| slowed|reverb|توزيع|كلمات|الحان).*?[\)\]]/gi, '')
+      .replace(/\b(19|20)\d{2}\b/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  // Clean YouTube channel names from artist
+  const a = artist.split('|')[0].split(' - ')[0].trim()
+  const cleanLast = strip(lastSeg) || title
+  const cleanFirst = strip(firstSeg) || title
+  return { title: cleanLast, firstSeg: cleanFirst, artist: a }
 }
 
 export default function LyricsPanel() {
@@ -88,19 +95,29 @@ export default function LyricsPanel() {
     setSearched(false)
     if (!currentTrack || currentTrack.source === 'Demo') return
 
-    const { title, artist } = cleanQuery(currentTrack.title, currentTrack.artist)
+    const { title, artist, firstSeg } = cleanQuery(currentTrack.title, currentTrack.artist)
     const rawTitle = currentTrack.title
     setLoading(true)
 
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 20000)
+    const timer = setTimeout(() => controller.abort(), 30000)
     let cancelled = false
 
-    const searches: Array<{ title: string; artist: string }> = [
+    // Try multiple search variations (deduplicated)
+    const seen = new Set<string>()
+    const searches: Array<{ title: string; artist: string }> = []
+    for (const q of [
       { title, artist },
+      { title: firstSeg, artist },
       { title, artist: '' },
       { title: rawTitle, artist: '' },
-    ]
+    ]) {
+      const key = `${q.title}|||${q.artist}`.toLowerCase()
+      if (q.title && !seen.has(key)) {
+        seen.add(key)
+        searches.push(q)
+      }
+    }
 
     const trySearch = (idx: number) => {
       if (cancelled) return

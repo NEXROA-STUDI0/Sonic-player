@@ -744,7 +744,7 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
         })
 
     def _handle_lyrics(self, title, artist):
-        """Fetch synced lyrics for a song."""
+        """Fetch lyrics: LRCLib exact, then fuzzy (artist-matched), then lyrics.ovh."""
         if not title and not artist:
             return self._send_json({'lrc': '', 'source': 'none'})
 
@@ -757,14 +757,25 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
             if 'lyrics' in cache and cache_key in cache['lyrics']:
                 return self._send_json(cache['lyrics'][cache_key])
 
-        # Try LRCLib API directly (no syncedlyrics library needed)
+        # 1) LRCLib exact match (fast path, synced when available)
         lrc = self._fetch_lrclib(title, artist)
-        result = {'lrc': lrc or '', 'source': 'lrclib' if lrc else 'none'}
-        with cache_lock:
-            if 'lyrics' not in cache:
-                cache['lyrics'] = {}
-            cache['lyrics'][cache_key] = result
-        save_cache()
+        source = 'lrclib' if lrc else ''
+        # 2) LRCLib fuzzy search with artist/title scoring (rejects wrong songs)
+        if not lrc:
+            lrc = self._fetch_lrclib_search(title, artist)
+            source = 'lrclib-search' if lrc else ''
+        # 3) lyrics.ovh plain-lyrics fallback (free, no key)
+        if not lrc:
+            lrc = self._fetch_ovh(title, artist)
+            source = 'ovh' if lrc else ''
+        result = {'lrc': lrc or '', 'source': source or 'none'}
+        # Only cache hits — misses are retried next time (lyric DBs update daily)
+        if lrc:
+            with cache_lock:
+                if 'lyrics' not in cache:
+                    cache['lyrics'] = {}
+                cache['lyrics'][cache_key] = result
+            save_cache()
         return self._send_json(result)
 
     def _fetch_lrclib(self, title, artist):
@@ -782,6 +793,85 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 return data.get('syncedLyrics', '') or data.get('plainLyrics', '')
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _norm_lyrics_key(s):
+        """Normalize for comparison: lowercase, drop brackets, keep latin+arabic."""
+        s = (s or '').lower()
+        s = re.sub(r'[\(\[].*?[\)\]]', ' ', s)
+        s = re.sub(r'[^0-9a-z\u0600-\u06ff]+', ' ', s)
+        return re.sub(r'\s+', ' ', s).strip()
+
+    @classmethod
+    def _lyrics_match(cls, query, candidate):
+        """0..2 score: 2 = equal, else token-overlap ratio."""
+        q = cls._norm_lyrics_key(query)
+        c = cls._norm_lyrics_key(candidate)
+        if not q or not c:
+            return 0.0
+        if q == c or q.replace(' ', '') == c.replace(' ', ''):
+            return 2.0
+        qt, ct = set(q.split()), set(c.split())
+        if not qt:
+            return 0.0
+        return len(qt & ct) / len(qt)
+
+    def _fetch_lrclib_search(self, title, artist):
+        """Fuzzy LRCLib search; keeps best artist+title match, rejects mismatches."""
+        try:
+            # Strip edition noise ("Remastered", "Live", ...) that poisons search
+            q = re.sub(
+                r'\b(remaster(?:ed)?|remix|version|edit|mix|live|acoustic|slowed|reverb|'
+                r'cover|official|video|audio|lyrics?|hd|4k|extended|radio)\b',
+                ' ', f'{title} {artist}', flags=re.IGNORECASE,
+            )
+            q = re.sub(r'\s+', ' ', q).strip()
+            if not q:
+                return ''
+            url = f'https://lrclib.net/api/search?q={urllib.parse.quote(q)}'
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'SonicPlayer/1.0 (https://github.com/NEXROA-STUDI0)',
+                'Accept': 'application/json',
+            })
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                items = json.loads(resp.read().decode('utf-8'))
+            if not isinstance(items, list):
+                return ''
+            best, best_key = '', None
+            for item in items:
+                if not isinstance(item, dict) or item.get('instrumental'):
+                    continue
+                synced = (item.get('syncedLyrics') or '').strip()
+                plain = (item.get('plainLyrics') or '').strip()
+                lrc = synced or plain
+                if not lrc:
+                    continue
+                ts = self._lyrics_match(title, item.get('trackName', ''))
+                if ts < 0.5:
+                    continue
+                as_ = self._lyrics_match(artist, item.get('artistName', '')) if artist else 0.0
+                if artist and as_ < 0.5:
+                    continue
+                key = (1 if synced else 0, ts + as_)
+                if best_key is None or key > best_key:
+                    best_key, best = key, lrc
+            return best
+        except Exception:
+            return ''
+
+    def _fetch_ovh(self, title, artist):
+        """Plain-lyrics fallback via lyrics.ovh (free, no key)."""
+        try:
+            if not title or not artist:
+                return ''
+            url = (f'https://api.lyrics.ovh/v1/{urllib.parse.quote(artist)}'
+                   f'/{urllib.parse.quote(title)}')
+            req = urllib.request.Request(url, headers={'Accept': 'application/json'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return (data.get('lyrics') or '').strip()
         except Exception:
             return ''
 
