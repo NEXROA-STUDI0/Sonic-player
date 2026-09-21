@@ -965,14 +965,12 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
                     except (FileNotFoundError, subprocess.TimeoutExpired):
                         continue
                 files = sorted(glob.glob(os.path.join(tmpdir, 'cap.*.vtt')))
+                files += sorted(glob.glob(os.path.join(tmpdir, 'cap.*.srt')))
 
                 def rank(p):
                     n = os.path.basename(p).lower()
-                    if '.ar-orig.' in n or n.endswith('.ar.vtt') or '.ar.' in n:
-                        return 0
-                    if '.en' in n:
-                        return 1
-                    return 2
+                    lang = 0 if ('.ar-orig.' in n or n.endswith('.ar.vtt') or '.ar.' in n) else (1 if '.en' in n else 2)
+                    return (lang, 0 if n.endswith('.vtt') else 1)
 
                 files.sort(key=rank)
                 for fp in files:

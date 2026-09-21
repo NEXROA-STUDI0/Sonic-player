@@ -83,10 +83,49 @@ export default function LyricsPanel() {
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
   const [capLoading, setCapLoading] = useState(false)
+  /** Manual sync correction in seconds, saved per video */
+  const [offset, setOffset] = useState(0)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const lastUserScroll = useRef(0)
   const trackId = currentTrack?.id
+
+  const offsetKey = currentTrack?.videoId ? `sonic_lyrics_offset_${currentTrack.videoId}` : null
+
+  // Load saved sync correction for this track
+  useEffect(() => {
+    if (!offsetKey) {
+      setOffset(0)
+      return
+    }
+    try {
+      const v = parseFloat(localStorage.getItem(offsetKey) || '0')
+      setOffset(isNaN(v) ? 0 : v)
+    } catch {
+      setOffset(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackId])
+
+  const changeOffset = useCallback(
+    (d: number) => {
+      setOffset((prev) => {
+        const next = Math.round((prev + d) * 10) / 10
+        try {
+          if (offsetKey) localStorage.setItem(offsetKey, String(next))
+        } catch {}
+        return next
+      })
+    },
+    [offsetKey]
+  )
+
+  const resetOffset = useCallback(() => {
+    setOffset(0)
+    try {
+      if (offsetKey) localStorage.removeItem(offsetKey)
+    } catch {}
+  }, [offsetKey])
 
   // Fetch lyrics when the track changes
   useEffect(() => {
@@ -202,18 +241,19 @@ export default function LyricsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId])
 
-  // Find the active line from playback progress
+  // Find the active line from playback progress (+ manual sync correction)
   useEffect(() => {
     if (!synced || lines.length === 0) return
+    const t = progress + offset
     let idx = -1
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (progress >= lines[i].time) {
+      if (t >= lines[i].time) {
         idx = i
         break
       }
     }
     setCurrentLine((prev) => (prev === idx ? prev : idx))
-  }, [progress, lines, synced])
+  }, [progress, lines, synced, offset])
 
   // Auto-scroll to the active line (paused briefly after manual scroll)
   useEffect(() => {
@@ -262,6 +302,41 @@ export default function LyricsPanel() {
         {loading && !capLoading && <span className="text-[9px] text-sonic-textMuted/30 ml-auto">Loading...</span>}
         {capLoading && <span className="text-[9px] text-sonic-textMuted/30 ml-auto">Fetching video subtitles...</span>}
       </div>
+
+      {/* Sync correction (per-track, saved) */}
+      {synced && lines.length > 0 && (
+        <div className="flex items-center justify-center gap-2 px-4 pb-2 shrink-0">
+          <button
+            onClick={() => changeOffset(-0.5)}
+            title="Lyrics earlier (-0.5s)"
+            className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-sonic-surface3/60 border border-sonic-border text-sonic-textMuted hover:text-sonic-textPrimary active:scale-95 transition-all"
+          >
+            −0.5s
+          </button>
+          <span
+            title="Current sync correction for this song"
+            className={`text-[10px] tabular-nums min-w-[44px] text-center ${offset !== 0 ? 'text-[#e8c547]' : 'text-sonic-textMuted/40'}`}
+          >
+            {offset > 0 ? `+${offset.toFixed(1)}s` : `${offset.toFixed(1)}s`}
+          </span>
+          <button
+            onClick={() => changeOffset(0.5)}
+            title="Lyrics later (+0.5s)"
+            className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-sonic-surface3/60 border border-sonic-border text-sonic-textMuted hover:text-sonic-textPrimary active:scale-95 transition-all"
+          >
+            +0.5s
+          </button>
+          {offset !== 0 && (
+            <button
+              onClick={resetOffset}
+              title="Reset sync correction"
+              className="text-[10px] text-sonic-textMuted/40 hover:text-sonic-textMuted underline underline-offset-2"
+            >
+              reset
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Lines */}
       <div
