@@ -381,6 +381,10 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
             artist = params.get('artist', '')
             return self._handle_lyrics(title, artist)
 
+        # ── Video Captions → Lyrics ──
+        if path == '/captions':
+            return self._handle_captions(params.get('videoId', ''))
+
         # ── Proxy ──
         if path == '/proxy':
             url = params.get('url', '')
@@ -874,6 +878,140 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
                 return (data.get('lyrics') or '').strip()
         except Exception:
             return ''
+
+    @staticmethod
+    def _vtt_time_to_secs(t):
+        """HH:MM:SS.mmm or MM:SS.mmm -> seconds."""
+        try:
+            parts = t.strip().replace(',', '.').split(':')
+            if len(parts) == 3:
+                h, m, s = parts
+            elif len(parts) == 2:
+                h, m, s = '0', parts[0], parts[1]
+            else:
+                return -1.0
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        except (ValueError, TypeError):
+            return -1.0
+
+    def _clean_vtt_text(self, text):
+        """Strip inline timestamps, voice tags, entities, >> markers and [notes]."""
+        text = re.sub(r'<\d[^>]*>', '', text)  # inline word timestamps <00:00:16.000>
+        text = re.sub(r'</?c[^>]*>', '', text)  # <c> color tags
+        text = re.sub(r'<v[^>]*>', '', text)  # <v Speaker> voice tags
+        text = text.replace('&gt;', '>').replace('&lt;', '<')
+        text = text.replace('&amp;', '&').replace('&nbsp;', ' ')
+        text = text.replace('>>', ' ')  # speaker markers anywhere in rolling captions
+        text = re.sub(r'\[.+?\]', '', text)  # [موسيقى], [غناء] and similar notes
+        return re.sub(r'\s+', ' ', text).strip()
+
+    def _vtt_to_lrc(self, vtt):
+        """Convert WebVTT cues to LRC, deduping rolling auto-captions."""
+        lines, last = [], ''
+        cue_time, cue_texts = -1.0, []
+
+        def flush():
+            nonlocal cue_time, cue_texts, last
+            if cue_time >= 0:
+                text = self._clean_vtt_text(' '.join(cue_texts))
+                if text and not re.fullmatch(r'\[.+?\]', text) and text != last:
+                    lines.append((cue_time, text))
+                    last = text
+            cue_time, cue_texts = -1.0, []
+
+        for raw in vtt.split('\n'):
+            line = raw.strip()
+            if not line:
+                flush()
+                continue
+            if line == 'WEBVTT' or line.startswith(('Kind:', 'Language:', 'NOTE', 'STYLE')):
+                continue
+            m = re.match(r'(\d{1,3}:\d{1,2}:\d{1,2}[.,]\d{1,3}|\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->', line)
+            if m:
+                flush()
+                cue_time = self._vtt_time_to_secs(m.group(1))
+            elif cue_time >= 0:
+                cue_texts.append(line)
+        flush()
+
+        out = []
+        for t, text in lines:
+            mm = int(t // 60)
+            out.append(f'[{mm:02d}:{t - mm * 60:05.2f}] {text}')
+        return '\n'.join(out)
+
+    def _fetch_youtube_captions(self, video_id):
+        """Download video subtitles (manual first, then auto) and convert to LRC."""
+        vid = self._sanitize_video_id(video_id)
+        if not vid:
+            return '', ''
+        tmpdir = f'/tmp/sonic_caps_{os.getpid()}_{int(time.time() * 1000)}'
+        try:
+            os.makedirs(tmpdir, exist_ok=True)
+            url = f'https://www.youtube.com/watch?v={vid}'
+            for auto in (False, True):
+                sub_args = [
+                    '--skip-download', '--no-warnings', '--quiet',
+                    '--write-auto-sub' if auto else '--write-sub',
+                    '--sub-langs', 'ar.*,en.*',
+                    '--sub-format', 'vtt/best',
+                    '-o', os.path.join(tmpdir, 'cap.%(ext)s'),
+                    url,
+                ]
+                for cmd in self._ytdlp_commands(sub_args):
+                    try:
+                        subprocess.run(cmd, capture_output=True, timeout=60)
+                        break
+                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                        continue
+                files = sorted(glob.glob(os.path.join(tmpdir, 'cap.*.vtt')))
+
+                def rank(p):
+                    n = os.path.basename(p).lower()
+                    if '.ar-orig.' in n or n.endswith('.ar.vtt') or '.ar.' in n:
+                        return 0
+                    if '.en' in n:
+                        return 1
+                    return 2
+
+                files.sort(key=rank)
+                for fp in files:
+                    try:
+                        with open(fp, encoding='utf-8', errors='replace') as f:
+                            lrc = self._vtt_to_lrc(f.read())
+                        if len(lrc.split('\n')) >= 4:
+                            return lrc, ('manual' if not auto else 'auto')
+                    except OSError:
+                        continue
+            return '', ''
+        except Exception:
+            return '', ''
+        finally:
+            try:
+                for fp in glob.glob(os.path.join(tmpdir, '*')):
+                    os.remove(fp)
+                os.rmdir(tmpdir)
+            except OSError:
+                pass
+
+    def _handle_captions(self, video_id):
+        """Video subtitles converted to synced lyrics."""
+        vid = self._sanitize_video_id(video_id)
+        if not vid:
+            return self._send_error('invalid video id', 400)
+        cache_key = f'captions_{vid}'
+        with cache_lock:
+            if 'lyrics' in cache and cache_key in cache['lyrics']:
+                return self._send_json(cache['lyrics'][cache_key])
+        lrc, kind = self._fetch_youtube_captions(vid)
+        result = {'lrc': lrc, 'source': f'captions-{kind}' if lrc else 'none'}
+        if lrc:
+            with cache_lock:
+                if 'lyrics' not in cache:
+                    cache['lyrics'] = {}
+                cache['lyrics'][cache_key] = result
+            save_cache()
+        return self._send_json(result)
 
     def _handle_play(self, video_id):
         """Stream audio directly via yt-dlp subprocess (bypasses googlevideo 403)."""

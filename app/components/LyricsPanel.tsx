@@ -82,6 +82,7 @@ export default function LyricsPanel() {
   const [currentLine, setCurrentLine] = useState(-1)
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [capLoading, setCapLoading] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const lastUserScroll = useRef(0)
@@ -93,6 +94,7 @@ export default function LyricsPanel() {
     setSynced(false)
     setCurrentLine(-1)
     setSearched(false)
+    setCapLoading(false)
     if (!currentTrack || currentTrack.source === 'Demo') return
 
     const { title, artist, firstSeg } = cleanQuery(currentTrack.title, currentTrack.artist)
@@ -119,12 +121,56 @@ export default function LyricsPanel() {
       }
     }
 
+    const finishEmpty = () => {
+      clearTimeout(timer)
+      setLoading(false)
+      setCapLoading(false)
+      setSearched(true)
+    }
+
+    const finishFound = (parsed: { lines: LrcLine[]; synced: boolean }) => {
+      setLines(parsed.lines)
+      setSynced(parsed.synced)
+      finishEmpty()
+    }
+
+    // Last resort: video subtitles (YouTube captions) converted to synced lyrics.
+    // Works even for songs missing from every lyrics database.
+    const tryCaptions = () => {
+      const vid = currentTrack?.videoId
+      if (!vid) {
+        finishEmpty()
+        return
+      }
+      clearTimeout(timer)
+      setCapLoading(true)
+      const capTimer = setTimeout(() => controller.abort(), 100000)
+      fetch(`${BACKEND}/captions?videoId=${encodeURIComponent(vid)}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return
+          clearTimeout(capTimer)
+          if (data.lrc) {
+            const parsed = parseLrc(data.lrc)
+            if (parsed.lines.length > 0) {
+              finishFound(parsed)
+              return
+            }
+          }
+          finishEmpty()
+        })
+        .catch(() => {
+          if (!cancelled) {
+            clearTimeout(capTimer)
+            finishEmpty()
+          }
+        })
+    }
+
     const trySearch = (idx: number) => {
       if (cancelled) return
       if (idx >= searches.length) {
-        clearTimeout(timer)
-        setLoading(false)
-        setSearched(true)
+        tryCaptions()
         return
       }
       const q = searches[idx]
@@ -138,11 +184,7 @@ export default function LyricsPanel() {
           if (data.lrc) {
             const parsed = parseLrc(data.lrc)
             if (parsed.lines.length > 0) {
-              setLines(parsed.lines)
-              setSynced(parsed.synced)
-              clearTimeout(timer)
-              setLoading(false)
-              setSearched(true)
+              finishFound(parsed)
               return
             }
           }
@@ -217,7 +259,8 @@ export default function LyricsPanel() {
             SYNCED
           </span>
         )}
-        {loading && <span className="text-[9px] text-sonic-textMuted/30 ml-auto">Loading...</span>}
+        {loading && !capLoading && <span className="text-[9px] text-sonic-textMuted/30 ml-auto">Loading...</span>}
+        {capLoading && <span className="text-[9px] text-sonic-textMuted/30 ml-auto">Fetching video subtitles...</span>}
       </div>
 
       {/* Lines */}
