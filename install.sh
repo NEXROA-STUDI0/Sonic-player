@@ -181,8 +181,9 @@ if [ "$OS" = "termux" ]; then
   fi
 else
   # Linux/macOS: only need yt-dlp (stdlib handles everything else)
-  info "Installing yt-dlp..."
-  $PIP install yt-dlp 2>&1 || $PIP install --break-system-packages yt-dlp 2>&1
+  # -U ensures stale installs get upgraded (old yt-dlp = YouTube 403 = no playback)
+  info "Installing/upgrading yt-dlp..."
+  $PIP install -U yt-dlp 2>&1 || $PIP install -U --break-system-packages yt-dlp 2>&1
 fi
 
 if command -v yt-dlp &>/dev/null || $PYTHON -c "import yt_dlp" 2>/dev/null; then

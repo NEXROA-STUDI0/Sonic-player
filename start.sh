@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
 # Sonic Player — Start Script
-# Starts both Frontend (Next.js :3004) + Backend (FastAPI :8005)
+# Starts both Frontend (Next.js :3004) + Backend (stdlib :8005)
 # ═══════════════════════════════════════════════════════════
 
 set +e  # Don't exit on error - we handle them
 
-# ── Kill any existing processes on our ports ──
-# Termux-friendly: works everywhere
-pkill -f "python" 2>/dev/null
+# ── Kill only OUR processes (never touch other apps) ──
+pkill -f "backend/server.py" 2>/dev/null
+pkill -f "next-server" 2>/dev/null
+pkill -f "next start" 2>/dev/null
+pkill -f "next dev" 2>/dev/null
 sleep 1
 
 RED='\033[0;31m'
@@ -51,15 +53,44 @@ else
   NEXT_CMD="npx next start -p 3004"
 fi
 
-# ── Check yt-dlp availability ──
-echo -e "  ${CYAN}→${NC} Checking yt-dlp..."
-if pip3 show yt-dlp >/dev/null 2>&1; then
-  echo -e "  ${GREEN}✓${NC} yt-dlp found (yt-dlp)"
+# ── Check Node version (Next.js needs >= 20) ──
+if command -v node &>/dev/null; then
+  NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null)
+  if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+    echo -e "  ${RED}✗${NC} Node.js >= 20 required (found v$(node --version)). Update Node first."
+    exit 1
+  fi
 else
-  echo -e "  ${YELLOW}⚠${NC} yt-dlp not found via pip3 — attempting install..."
-  python3 -m pip install yt-dlp -q 2>/dev/null || python3 -m pip install --break-system-packages yt-dlp -q
-  if command -v yt-dlp >/dev/null 2>&1 || python3 -c "import yt_dlp" >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓${NC} yt-dlp installed successfully"
+  echo -e "  ${RED}✗${NC} Node.js not found. Install Node >= 20 first."
+  exit 1
+fi
+
+# ── Check yt-dlp availability AND freshness ──
+# Stale yt-dlp = YouTube 403 = songs won't play. Upgrade if older than ~180 days.
+echo -e "  ${CYAN}→${NC} Checking yt-dlp..."
+YTDLP_STATUS=$($PYTHON -c "
+try:
+    import yt_dlp, datetime
+    v = yt_dlp.version.__version__
+    p = [int(x) for x in v.split('.')[:3]]
+    while len(p) < 3:
+        p.append(1)
+    age = (datetime.date.today() - datetime.date(p[0], p[1], min(p[2], 28))).days
+    print('STALE' if age > 180 else 'FRESH:' + v)
+except Exception:
+    print('MISSING')
+" 2>/dev/null)
+if [[ "$YTDLP_STATUS" == FRESH:* ]]; then
+  echo -e "  ${GREEN}✓${NC} yt-dlp ${YTDLP_STATUS#FRESH:} (fresh)"
+else
+  if [[ "$YTDLP_STATUS" == "STALE" ]]; then
+    echo -e "  ${YELLOW}⚠${NC} yt-dlp is outdated (YouTube will block it) — upgrading..."
+  else
+    echo -e "  ${YELLOW}⚠${NC} yt-dlp not found — installing..."
+  fi
+  $PYTHON -m pip install -U yt-dlp -q 2>/dev/null || $PYTHON -m pip install -U --break-system-packages yt-dlp -q
+  if $PYTHON -c "import yt_dlp" >/dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} yt-dlp ready ($($PYTHON -c "import yt_dlp; print(yt_dlp.version.__version__)" 2>/dev/null))"
   else
     echo -e "  ${RED}✗${NC} yt-dlp installation failed — backend may not work correctly"
   fi

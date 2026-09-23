@@ -22,6 +22,9 @@ import socketserver
 from pathlib import Path
 
 PORT = 8005
+# Bind locally by default so LAN strangers can't reach the backend.
+# Override with SONIC_HOST=0.0.0.0 only on trusted networks.
+HOST = os.environ.get('SONIC_HOST', '127.0.0.1').strip() or '127.0.0.1'
 CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sonic_cache.json')
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
 YTDLP_COOKIES = os.environ.get('SONIC_YTDLP_COOKIES', '').strip()
@@ -1230,13 +1233,14 @@ class ReusableThreadingTCPServer(socketserver.ThreadingTCPServer):
     """Threaded server that can be restarted without waiting for TIME_WAIT sockets."""
 
     allow_reuse_address = True
-    allow_reuse_port = True
+    # NOTE: no allow_reuse_port on purpose — a second instance must FAIL loudly
+    # instead of silently sharing the port and serving stale code.
     daemon_threads = True
 
 
 def run_server():
-    server = ReusableThreadingTCPServer(('0.0.0.0', PORT), SonicHandler)
-    print(f'[Sonic] Backend running on http://localhost:{PORT}')
+    server = ReusableThreadingTCPServer((HOST, PORT), SonicHandler)
+    print(f'[Sonic] Backend running on http://{HOST}:{PORT}')
     print(f'[Sonic] Multi-threaded — zero dependencies!')
     try:
         server.serve_forever()
