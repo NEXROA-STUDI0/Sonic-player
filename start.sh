@@ -96,6 +96,22 @@ else
   fi
 fi
 
+# ── Bot-wall probe: can this network actually stream from YouTube? ──
+# Search works even when streams are blocked, so test a real extraction.
+echo -e "  ${CYAN}→${NC} Probing YouTube playback..."
+PROBE_OUT=$($PYTHON -m yt_dlp --skip-download --no-warnings --socket-timeout 8 --retries 0 --print id "https://www.youtube.com/watch?v=WT1t0X-18w8" 2>&1)
+if [ "$PROBE_OUT" = "WT1t0X-18w8" ]; then
+  echo -e "  ${GREEN}✓${NC} YouTube playback OK"
+elif echo "$PROBE_OUT" | grep -qi "sign in to confirm"; then
+  echo -e "  ${RED}✗${NC} YouTube is blocking streams on this network (bot check)."
+  echo -e "     Search & lyrics will work, but audio needs login cookies:"
+  echo -e "     1) Install the 'Get cookies.txt LOCALLY' browser extension"
+  echo -e "     2) Log into YouTube, export cookies to cookies.txt in this folder"
+  echo -e "     3) Restart with: SONIC_YTDLP_COOKIES=cookies.txt bash start.sh"
+else
+  echo -e "  ${YELLOW}⚠${NC} Playback probe inconclusive — continuing anyway"
+fi
+
 # ── Start Backend ──
 echo -e "  ${GREEN}━━━${NC} ${BOLD}Starting Backend (port 8005)...${NC}"
 cd backend

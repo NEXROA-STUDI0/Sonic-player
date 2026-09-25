@@ -158,13 +158,21 @@ sh start.sh
 
 ### YouTube authentication (when required)
 
-YouTube may occasionally require authentication before `yt-dlp` can extract an audio or video stream. If that happens, provide either a Netscape-format cookies file or a browser profile when starting the backend:
+YouTube may require authentication before `yt-dlp` can stream audio ("Sign in to confirm you're not a bot"). Symptom: **search works but songs won't play**. `bash start.sh` detects this automatically and tells you. To fix it, export your YouTube cookies:
 
 ```bash
+# 1) Install the "Get cookies.txt LOCALLY" extension in Chrome/Edge/Firefox
+# 2) Log into youtube.com, click the extension, Export → save as cookies.txt
+#    inside the Sonic-player folder
+# 3) Start with cookies:
+SONIC_YTDLP_COOKIES=cookies.txt bash start.sh
+# or manually:
 SONIC_YTDLP_COOKIES=/path/to/youtube-cookies.txt python3 backend/server.py
 # or, for a supported local browser profile:
 SONIC_YTDLP_BROWSER=chromium python3 backend/server.py
 ```
+
+> Keep `cookies.txt` private (it equals a YouTube login session) and never commit it.
 
 The backend returns a clear `503` response when a stream cannot be extracted instead of caching an empty URL. This keeps the player from attempting to play a JSON error response.
 

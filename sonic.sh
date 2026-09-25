@@ -44,18 +44,23 @@ install_deps() {
       fi
     done
 
-    # Install yt-dlp
+    # Install/upgrade yt-dlp — pip FIRST (distro apt copies are ancient
+    # and YouTube blocks them, which silently breaks playback)
+    info "Installing yt-dlp..."
     if ! command -v yt-dlp &>/dev/null; then
-      info "Installing yt-dlp..."
-      apt-get install -y yt-dlp 2>/dev/null || pip install yt-dlp 2>/dev/null || true
+      pip install -U yt-dlp 2>/dev/null || apt-get install -y yt-dlp 2>/dev/null || true
+    else
+      pip install -U yt-dlp 2>/dev/null || true
     fi
     command -v yt-dlp &>/dev/null && ok "yt-dlp $(yt-dlp --version 2>/dev/null)" || warn "yt-dlp not found — run: pkg install yt-dlp"
 
   else
-    # PC: just install yt-dlp via pip
+    # PC: pip first (never trust distro apt copies — too old for YouTube)
     if ! command -v yt-dlp &>/dev/null; then
       info "Installing yt-dlp..."
-      pip3 install yt-dlp 2>/dev/null || pip3 install --break-system-packages yt-dlp 2>/dev/null || pip install yt-dlp 2>/dev/null || pip install --break-system-packages yt-dlp 2>/dev/null || true
+      pip3 install -U yt-dlp 2>/dev/null || pip3 install -U --break-system-packages yt-dlp 2>/dev/null || pip install -U yt-dlp 2>/dev/null || pip install -U --break-system-packages yt-dlp 2>/dev/null || apt-get install -y yt-dlp 2>/dev/null || true
+    else
+      pip3 install -U yt-dlp 2>/dev/null || pip3 install -U --break-system-packages yt-dlp 2>/dev/null || true
     fi
     command -v yt-dlp &>/dev/null && ok "yt-dlp $(yt-dlp --version 2>/dev/null)" || warn "yt-dlp not found — run: pip install yt-dlp"
   fi

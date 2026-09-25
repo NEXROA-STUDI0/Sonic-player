@@ -191,6 +191,42 @@ export default function AudioEngine() {
     clearSeekRequest()
   }, [seekRequest])
 
+  // Diagnose a YouTube playback failure with precise, actionable messages.
+  // Runs only AFTER an error (zero cost on the happy path).
+  const diagnoseYouTubeError = async (track: { videoId?: string }) => {
+    if (!track.videoId) {
+      setPlaybackError('Missing video id for this track. Try another track.')
+      return
+    }
+    // 1) Is the backend reachable?
+    try {
+      const h = await fetch(`${BACKEND}/health`, { signal: AbortSignal.timeout(8000) })
+      if (!h.ok) throw new Error('unhealthy')
+    } catch {
+      setPlaybackError('Backend is offline. Start it first: python3 backend/server.py')
+      return
+    }
+    // 2) Can yt-dlp extract on this network? (/stream returns 503 + hint on bot-wall)
+    try {
+      const r = await fetch(`${BACKEND}/stream/${track.videoId}`, { signal: AbortSignal.timeout(60000) })
+      if (r.status === 503) {
+        setPlaybackError(
+          'YouTube is blocking streams on this network (sign-in required). ' +
+          'Export YouTube cookies (see README), then restart the backend with SONIC_YTDLP_COOKIES=cookies.txt'
+        )
+        return
+      }
+      if (!r.ok) throw new Error('extract failed')
+    } catch (e) {
+      if (e instanceof Error && e.message === 'extract failed') {
+        setPlaybackError('Stream extraction failed for this video. Try another track.')
+        return
+      }
+      // Diagnosis request itself failed — fall through to generic message
+    }
+    setPlaybackError('Unable to play this YouTube stream. Try another track.')
+  }
+
   // Event listeners
   useEffect(() => {
     const audio = audioRef.current
@@ -209,7 +245,10 @@ export default function AudioEngine() {
       setLoading(false)
       if (currentTrack?.source === 'YouTube') {
         pause()
-        setPlaybackError('Unable to play this YouTube stream. Configure yt-dlp authentication or try another track.')
+        // Show an interim message, then diagnose the real cause
+        // (media-element errors carry no status code, so ask the backend).
+        setPlaybackError('Playback failed. Diagnosing…')
+        diagnoseYouTubeError(currentTrack)
       }
       if (currentTrack?.source === 'Demo') {
         setTimeout(() => next(), 1000)
