@@ -40,8 +40,6 @@
     "@types/node": "^26.0.1",
     "@types/react": "^18.2.0",
     "autoprefixer": "^10.5.2",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.9",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3"
