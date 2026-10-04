@@ -198,11 +198,28 @@ export default function AudioEngine() {
       setPlaybackError('Missing video id for this track. Try another track.')
       return
     }
-    // 1) Is the backend reachable?
+    // 1) Is the backend reachable, and is its yt-dlp usable?
     try {
       const h = await fetch(`${BACKEND}/health`, { signal: AbortSignal.timeout(8000) })
       if (!h.ok) throw new Error('unhealthy')
-    } catch {
+      const info = await h.json().catch(() => null)
+      const yt = info?.ytdlp
+      if (yt && !yt.available) {
+        setPlaybackError('yt-dlp is missing on the server. Install it (pip install yt-dlp), then restart the backend.')
+        return
+      }
+      if (yt && !yt.fresh) {
+        setPlaybackError(
+          `yt-dlp is outdated (version ${yt.version || 'unknown'}) — YouTube blocks it. ` +
+          'Upgrade: python3 -m pip install -U yt-dlp, then restart the backend.'
+        )
+        return
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message === 'unhealthy') {
+        setPlaybackError('Backend is offline. Start it first: python3 backend/server.py')
+        return
+      }
       setPlaybackError('Backend is offline. Start it first: python3 backend/server.py')
       return
     }

@@ -8,6 +8,7 @@ No pip packages needed except yt-dlp (install via 'pkg install yt-dlp' on Termux
 """
 
 import http.server
+import datetime
 import json
 import os
 import re
@@ -252,6 +253,21 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
             ['python', '-m', 'yt_dlp'] + configured_args,
         ]
 
+    @staticmethod
+    def _ytdlp_info():
+        """yt-dlp availability + freshness (stale yt-dlp = YouTube 403)."""
+        try:
+            import yt_dlp
+            ver = yt_dlp.version.__version__
+            parts = [int(x) for x in ver.split('.')[:3]]
+            while len(parts) < 3:
+                parts.append(1)
+            age = (datetime.date.today() -
+                   datetime.date(parts[0], parts[1], min(parts[2], 28))).days
+            return {'available': True, 'version': ver, 'fresh': age <= 180}
+        except Exception:
+            return {'available': False, 'version': '', 'fresh': False}
+
     def _run_ytdlp(self, args, timeout=30):
         """Run yt-dlp with given args, return stdout."""
         # Clamp timeout to max 120 seconds
@@ -309,11 +325,13 @@ class SonicHandler(http.server.BaseHTTPRequestHandler):
 
         params = self._get_params()
 
-        # ── Health ──
+        # ── Health (+ environment diagnostics for playback triage) ──
         if path == '/health' or path == '':
             return self._send_json({
                 'status': 'ok',
-                'cached_streams': len(cache.get('stream_url', {}))
+                'cached_streams': len(cache.get('stream_url', {})),
+                'ytdlp': self._ytdlp_info(),
+                'cookies': bool(YTDLP_COOKIES or YTDLP_BROWSER),
             })
 
         # ── Search YouTube ──

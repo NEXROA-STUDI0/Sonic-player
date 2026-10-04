@@ -174,6 +174,14 @@ SONIC_YTDLP_BROWSER=chromium python3 backend/server.py
 
 > Keep `cookies.txt` private (it equals a YouTube login session) and never commit it.
 
+### Songs won't play? Run the triage script
+
+```bash
+bash scripts/diagnose.sh
+```
+
+It checks the backend, the yt-dlp version, and runs a live extraction probe, then prints the exact cause and fix (~30 seconds).
+
 The backend returns a clear `503` response when a stream cannot be extracted instead of caching an empty URL. This keeps the player from attempting to play a JSON error response.
 
 ### Backend smoke tests
